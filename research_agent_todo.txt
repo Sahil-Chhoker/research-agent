@@ -1,0 +1,38 @@
+Research Agent Implementation Checklist
+
+1. Add persistent conversation history
+   - Add a LangGraph checkpointer.
+   - Use a stable thread_id for the interactive session.
+   - Preserve previous messages, research progress, quiz questions, and answers.
+
+2. Replace the broken quiz tool
+   - Make the quiz tool accept a topic.
+   - Load the relevant saved learning records.
+   - Generate questions from learned material.
+   - Track the user's answers, score, and weak concepts.
+
+3. Store learning and research data structurally
+   - Replace free-form log entries with structured JSON or SQLite records.
+   - Store topics, concepts, summaries, statuses, timestamps, confidence, and quiz results.
+   - Keep source URLs and citation metadata with each learning record.
+
+4. Enforce citations in research summaries
+   - Require every researched claim to include a source citation.
+   - Store source title, URL, and the claims supported by each source.
+   - Do not present unsupported facts as verified findings.
+
+5. Persist research milestones
+   - Break each research request into named milestones.
+   - Track each milestone as planned, researching, complete, or needs-review.
+   - Resume unfinished milestones in later conversations.
+   - Record open questions and next steps.
+
+6. Add error handling and tests
+   - Handle missing API keys, network failures, rate limits, invalid search results, and file/database errors.
+   - Validate tool inputs and reject empty queries or notes.
+   - Add focused tests for web search, persistence, citations, milestone tracking, and quizzes.
+
+7. Improve output and model reliability
+   - Print only the final assistant response instead of the complete internal result object.
+   - Use a stronger local model if tool calling and planning remain unreliable.
+   - Add a clear response format for progress, findings, citations, saved concepts, and next milestones.
