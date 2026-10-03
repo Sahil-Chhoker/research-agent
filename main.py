@@ -1,32 +1,93 @@
-from deepagents import create_deep_agent
 import sqlite3
-from settings import settings
-from tools import web_search_tool, save_learnings_tool, load_learnings_tool
+from typing import Callable
+
+from deepagents import create_deep_agent
+from langchain.agents.middleware import TodoListMiddleware
+from langchain.chat_models import init_chat_model
 from langgraph.checkpoint.serde.encrypted import EncryptedSerializer
 from langgraph.checkpoint.sqlite import SqliteSaver
-
-research_agent_prompt = ""
-with open('agent_system_prompt.txt', mode='r', encoding='utf-8') as file:
-    research_agent_prompt = file.read()
-
-
-aes_key = settings.LANGGRAPH_AES_KEY.encode('utf-8')
-
-serde = EncryptedSerializer.from_pycryptodome_aes(key=aes_key)
-connection = sqlite3.connect('checkpoint.db', check_same_thread=False)
-checkpointer = SqliteSaver(connection, serde=serde)
-
-agent = create_deep_agent(
-    model="ollama:qwen3:1.7b",
-    tools=[web_search_tool, save_learnings_tool, load_learnings_tool],
-    system_prompt=research_agent_prompt,
-    checkpointer=checkpointer
+from prompts import (
+    build_instructions,
+    build_researcher_instructions,
 )
+from settings import settings
+from tools import search_web
 
-thread_config = {"configurable": {"thread_id": "1"}}
-while True:
-    query = input("User: ")
-    if query.lower() in ['exit', 'quit']:
-        break
-    result = agent.invoke({"messages": [{"role": "user", "content": query}]}, thread_config)["messages"][-1].content
-    print(result)
+max_concurrent_research_units = 3
+max_researcher_iterations = 3
+
+def create_checkpointer(
+    database_path: str = "checkpoint.db",
+    encryption_key: str | None = None,
+) -> SqliteSaver:
+    """Create the encrypted SQLite checkpointer used by the agent."""
+    key = encryption_key or settings.LANGGRAPH_AES_KEY
+    if not key:
+        raise ValueError("LANGGRAPH_AES_KEY must be configured")
+
+    serde = EncryptedSerializer.from_pycryptodome_aes(key=key.encode('utf-8'))
+    connection = sqlite3.connect(database_path, check_same_thread=False)
+    return SqliteSaver(connection, serde=serde)
+
+
+def create_agent(
+    *,
+    model_name: str = "ollama:qwen3:1.7b",
+    database_path: str = "checkpoint.db",
+    encryption_key: str | None = None,
+):
+    """Assemble the model, tools, middleware, sub-agent, and checkpointer."""
+    research_sub_agent = {
+        "name": "research-agent",
+        "description": "Delegate research to the sub-agent. Give one topic at a time.",
+        "system_prompt": build_researcher_instructions(),
+        "tools": [search_web],
+    }
+    model = init_chat_model(model=model_name, temperature=0.0)
+    return create_deep_agent(
+        model=model,
+        tools=[search_web],
+        system_prompt=build_instructions(
+            max_concurrent_research_units=max_concurrent_research_units,
+            max_researcher_iterations=max_researcher_iterations,
+        ),
+        subagents=[research_sub_agent],
+        middleware=[TodoListMiddleware()],
+        checkpointer=create_checkpointer(database_path, encryption_key),
+    )
+
+
+def run_cli(
+    agent,
+    *,
+    thread_id: str = "1",
+    input_fn: Callable[[str], str] = input,
+    output_fn: Callable[[str], None] = print,
+) -> None:
+    """Run the interactive interface against an already-configured agent."""
+    thread_config = {"configurable": {"thread_id": thread_id}}
+    while True:
+        try:
+            query = input_fn("User: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            output_fn("")
+            return
+
+        if query.lower() in {"exit", "quit"}:
+            return
+        if not query:
+            continue
+
+        result = agent.invoke(
+            {"messages": [{"role": "user", "content": query}]},
+            thread_config,
+        )
+        output_fn(str(result["messages"][-1].content))
+
+
+def main() -> None:
+    run_cli(create_agent())
+
+
+if __name__ == "__main__":
+    main()

@@ -1,36 +1,64 @@
-from langchain_core.tools import tool
-from settings import settings
-from ollama import web_search
+from typing import Annotated
 
+from langchain_core.tools import InjectedToolArg, tool
+from ollama import WebFetchResponse, web_fetch, web_search
+
+
+def fetch_webpage_content(url: str) -> WebFetchResponse:
+    """
+    Fetch webpage and return results as WebFetchResponse
+        class WebFetchResponse(SubscriptableBaseModel):
+            title: Optional[str] = None
+            content: Optional[str] = None
+            links: Optional[Sequence[str]] = None
+
+    Raises:
+        RuntimeError: If the page cannot be fetched.
+    """
+    try:
+        response = web_fetch(url)
+    except Exception as error:
+        raise RuntimeError(f"Error fetching {url}: {error}") from error
+    if not response:
+        raise RuntimeError(f"Error fetching {url}: empty response")
+    return response
 
 @tool
-def web_search_tool(query: str, max_results=3):
+def search_web(
+        query: str,
+        max_results: Annotated[int, InjectedToolArg] = 1,
+    ) -> str:
+
     """
-    Performs a web search.
+    Search the web for information on a given query.
+
+    Uses Ollama web search to discover relevant URLs, then fetches and returns
+    full webpage content as Markdown.
 
     Args:
-        query: The query to search for.
-        max_results: The maximum number of results to return (default=3).
-    
+    query: Search query to execute
+    max_results: Maximum number of results to return (default: 1)
+
     Returns:
-        WebSearchResponse with the search results
-    Raises:
-        ValueError: If OLLAMA_API_KEY environment variable is not set
+        Formatted search results with full webpage content
     """
-    return web_search(query=query, max_results=max_results)
+    query = query.strip()
+    if not query:
+        raise ValueError("query must not be empty")
+    if max_results < 1:
+        raise ValueError("max_results must be at least 1")
 
+    search_results = web_search(query=query, max_results=max_results)
+    result_texts = []
+    for result in search_results.results:
+        url = result.url
+        webpage = fetch_webpage_content(url)
 
-@tool
-def save_learnings_tool(note: str):
-    """Saves an important learning note to the project log."""
-    with open(settings.LOG_FILE, 'a', encoding='utf-8') as log:
-        log.write(f"- {note} \n\n")
-    return f"Note saved: {note}"
+        title = webpage.title or url
+        content = webpage.content or ""
+        links = webpage.links or []
 
-@tool
-def load_learnings_tool():
-    """Loads the history and context required if missing from the current query."""
-    if not settings.LOG_FILE.exists():
-        return "Learning Log is empty."
-    with open(settings.LOG_FILE, 'r', encoding='utf-8') as log:
-        return log.read()
+        result_texts.append(f"##{title}\n**URL:** {url}\n\n{content}\n\nOther Links: {links}\n---")
+    return f"Found {len(result_texts)} result(s) for '{query}':\n\n" + "\n".join(
+        result_texts
+    )
