@@ -7,5 +7,6 @@ class Settings:
     OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY")
     LANGGRAPH_AES_KEY = os.getenv("LANGGRAPH_AES_KEY")
     LOG_FILE = os.getenv("LOG_FILE_PATH", "log.md")
+    MODEL = os.getenv("MODEL_NAME")
 
 settings = Settings()

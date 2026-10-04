@@ -1,7 +1,19 @@
-from typing import Annotated
+import json
+from contextlib import closing
+from typing import Annotated, Any
 
 from langchain_core.tools import InjectedToolArg, tool
 from ollama import WebFetchResponse, web_fetch, web_search
+from setup_learning import (
+    QuizAttempt,
+    find_learning_records,
+    init_db,
+    save_learning_record,
+    save_quiz_attempt,
+)
+
+MAX_PAGE_CHARACTERS = 12_000
+MAX_RELATED_LINKS = 10
 
 
 def fetch_webpage_content(url: str) -> WebFetchResponse:
@@ -26,18 +38,18 @@ def fetch_webpage_content(url: str) -> WebFetchResponse:
 @tool
 def search_web(
         query: str,
-        max_results: Annotated[int, InjectedToolArg] = 1,
+        max_results: Annotated[int, InjectedToolArg] = 2,
     ) -> str:
 
     """
     Search the web for information on a given query.
 
     Uses Ollama web search to discover relevant URLs, then fetches and returns
-    full webpage content as Markdown.
+    bounded webpage content as Markdown.
 
     Args:
     query: Search query to execute
-    max_results: Maximum number of results to return (default: 1)
+    max_results: Maximum number of results to return (default: 2)
 
     Returns:
         Formatted search results with full webpage content
@@ -55,10 +67,63 @@ def search_web(
         webpage = fetch_webpage_content(url)
 
         title = webpage.title or url
-        content = webpage.content or ""
-        links = webpage.links or []
+        content = (webpage.content or "")[:MAX_PAGE_CHARACTERS]
+        links = list(webpage.links or [])[:MAX_RELATED_LINKS]
 
-        result_texts.append(f"##{title}\n**URL:** {url}\n\n{content}\n\nOther Links: {links}\n---")
+        result_texts.append(
+            f"## {title}\n**URL:** {url}\n\n{content}\n\n"
+            f"Other Links: {links}\n---"
+        )
     return f"Found {len(result_texts)} result(s) for '{query}':\n\n" + "\n".join(
         result_texts
     )
+
+
+@tool
+def save_learning(
+    topic: str,
+    summary: str,
+    concepts: list[str],
+    source_urls: list[str],
+    confidence: float,
+) -> str:
+    """Save a learning record to the database."""
+    with closing(init_db()) as connection:
+        record = save_learning_record(
+            connection=connection,
+            record={
+                "topic": topic,
+                "summary": summary,
+                "concepts": concepts,
+                "source_urls": source_urls,
+                "confidence": confidence,
+            },
+        )
+    return f"Saved learning record with ID {record.id}"
+
+
+@tool
+def find_saved_learning(topic: str, limit: int = 10) -> str:
+    """Find saved learning records matching a topic.
+
+    Results are returned as JSON so the model receives a stable, structured
+    representation rather than a Python-specific object.
+    """
+    with closing(init_db()) as connection:
+        records = find_learning_records(connection=connection, topic=topic, limit=limit)
+    if not records:
+        return f"No learning records found for topic '{topic}'"
+    return json.dumps([record.model_dump() for record in records])
+
+
+@tool
+def save_quiz(
+    topic: str,
+    questions: list[dict[str, Any]],
+    score: float | None = None,
+) -> str:
+    """Save a completed or in-progress quiz and its answers."""
+    attempt = QuizAttempt(topic=topic, questions=questions, score=score)
+    with closing(init_db()) as connection:
+        saved_attempt = save_quiz_attempt(connection=connection, attempt=attempt)
+    return f"Saved quiz attempt with ID {saved_attempt.id}"

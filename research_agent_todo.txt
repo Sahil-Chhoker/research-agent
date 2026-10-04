@@ -1,15 +1,8 @@
 Research Agent Implementation Checklist
 
 2. Replace the broken quiz tool
-   - Make the quiz tool accept a topic.
-   - Load the relevant saved learning records.
    - Generate questions from learned material.
-   - Track the user's answers, score, and weak concepts.
-
-3. Store learning and research data structurally
-   - Replace free-form log entries with structured JSON or SQLite records.
-   - Store topics, concepts, summaries, statuses, timestamps, confidence, and quiz results.
-   - Keep source URLs and citation metadata with each learning record.
+   - Track weak concepts.
 
 4. Enforce citations in research summaries
    - Require every researched claim to include a source citation.
@@ -24,7 +17,7 @@ Research Agent Implementation Checklist
 
 6. Add error handling and tests
    - Handle missing API keys, network failures, rate limits, invalid search results, and file/database errors.
-   - Validate tool inputs and reject empty queries or notes.
+   - Reject empty notes.
    - Add focused tests for web search, persistence, citations, milestone tracking, and quizzes.
 
 8. Add reliable durable memory

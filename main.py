@@ -2,7 +2,7 @@ import sqlite3
 from typing import Callable
 
 from deepagents import create_deep_agent
-from langchain.agents.middleware import TodoListMiddleware
+from langchain.agents.middleware import TodoListMiddleware, SummarizationMiddleware
 from langchain.chat_models import init_chat_model
 from langgraph.checkpoint.serde.encrypted import EncryptedSerializer
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -11,7 +11,7 @@ from prompts import (
     build_researcher_instructions,
 )
 from settings import settings
-from tools import search_web
+from tools import find_saved_learning, save_learning, save_quiz, search_web
 
 max_concurrent_research_units = 3
 max_researcher_iterations = 3
@@ -32,7 +32,7 @@ def create_checkpointer(
 
 def create_agent(
     *,
-    model_name: str = "ollama:qwen3:1.7b",
+    model_name: str = settings.MODEL,
     database_path: str = "checkpoint.db",
     encryption_key: str | None = None,
 ):
@@ -46,13 +46,13 @@ def create_agent(
     model = init_chat_model(model=model_name, temperature=0.0)
     return create_deep_agent(
         model=model,
-        tools=[search_web],
+        tools=[search_web, save_learning, find_saved_learning, save_quiz],
         system_prompt=build_instructions(
             max_concurrent_research_units=max_concurrent_research_units,
             max_researcher_iterations=max_researcher_iterations,
         ),
         subagents=[research_sub_agent],
-        middleware=[TodoListMiddleware()],
+        middleware=[TodoListMiddleware(), SummarizationMiddleware(model=model)],
         checkpointer=create_checkpointer(database_path, encryption_key),
     )
 
